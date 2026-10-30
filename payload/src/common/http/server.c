@@ -55,6 +55,7 @@ static struct {
   int media_clients;
   int restart_request;
   int profiles_enabled, profile_pending, profile_changing, profile_height, profile_error;
+  uint32_t output_mode;
   uint64_t generation;
   FILE *rec;
   int rec_headers_pending;
@@ -114,6 +115,12 @@ void pbs_h264_profile_failed(void) {
   pthread_mutex_unlock(&live.lock);
 }
 
+void pbs_h264_note_output_mode(uint32_t mode) {
+  pthread_mutex_lock(&live.lock);
+  live.output_mode = mode;
+  pthread_mutex_unlock(&live.lock);
+}
+
 /* A resolution change is a transaction between /capture/profile and the next
  * successful start. Every start has to resolve it: confirm when the stream runs
  * at the requested size, report a failure when it does not (an automatic
@@ -155,15 +162,26 @@ static void profile_reply(int fd, int code, const char *message) {
 }
 static void select_profile(int fd, const char *path) {
   int height = 0, consumed = 0, code = 200;
+  char detail[160];
   const char *message = "Resolution change requested";
   if (sscanf(path, "/capture/profile?height=%d%n", &height, &consumed) != 1 ||
       path[consumed] || pbs_capture_profile_for_height(height, NULL)) {
     profile_reply(fd, 400, "Unsupported resolution"); return;
   }
   pthread_mutex_lock(&live.lock);
+  int output_height = pbs_capture_ceiling_for_video_mode(live.output_mode);
   if (!live.profiles_enabled) { code = 501; message = "This capture backend does not support resolution changes"; }
   else if (live.rec || live.rec_pending) { code = 409; message = "Stop recording before changing resolution"; }
   else if (live.profile_changing) { code = 409; message = "A resolution change is already in progress"; }
+  else if (pbs_capture_refused_for_video_mode(live.output_mode, height)) {
+    /* The encoder cannot be opened at this height for the current output mode,
+     * and a rejected reopen has to repair host-side capture ownership. Answer
+     * with the reason instead of attempting it. */
+    snprintf(detail, sizeof detail,
+             "Console output is %dp; %dp capture is not available at this output mode",
+             output_height, height);
+    code = 409; message = detail;
+  }
   else if (height == live.height) { message = "Resolution already active"; }
   else {
     live.profile_height = height; live.profile_pending = live.profile_changing = 1;

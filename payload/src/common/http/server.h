@@ -32,3 +32,7 @@ int pbs_h264_take_restart_request(void);
 void pbs_h264_enable_profiles(void);
 int pbs_h264_take_profile_request(int *height);
 void pbs_h264_profile_failed(void);
+/* Capture thread: publish the video-out mode read before opening the encoder,
+ * so a requested profile above what the console outputs is refused with a
+ * reason instead of a firmware rejection. */
+void pbs_h264_note_output_mode(uint32_t mode);

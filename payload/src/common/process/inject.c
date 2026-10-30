@@ -100,6 +100,30 @@ static int pb_ptrace(int request, pid_t pid, caddr_t addr, int data) {
   return (int)ret;
 }
 
+int pbs_list_processes(FILE *out, size_t max) {
+  if (!out) return -1;
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0};
+  size_t size = 0;
+  if (sysctl(mib, 4, NULL, &size, NULL, 0) || !size) return -1;
+  void *buf = malloc(size);
+  if (!buf) return -1;
+  if (sysctl(mib, 4, buf, &size, NULL, 0)) { free(buf); return -1; }
+  size_t shown = 0;
+  for (unsigned char *p = buf; p < (unsigned char *)buf + size && shown < max;) {
+    struct kinfo_proc *ki = (struct kinfo_proc *)p;
+    if (ki->ki_structsize < 8 ||
+        (size_t)ki->ki_structsize > (size_t)((unsigned char *)buf + size - p))
+      break;
+    p += ki->ki_structsize;
+    if (ki->ki_pid > 0) {
+      fprintf(out, "proc pid=%d comm=%s\n", (int)ki->ki_pid, ki->ki_comm);
+      shown++;
+    }
+  }
+  free(buf);
+  return (int)shown;
+}
+
 pid_t pbs_find_pid(const char *name) {
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0};
   size_t size = 0;

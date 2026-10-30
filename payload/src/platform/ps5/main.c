@@ -555,6 +555,9 @@ int main(int argc, char **argv) {
     unsigned capture_feature = (unsigned)strtoul(argv[4], NULL, 0);
     pbs_capture_profile previous_profile = {width, height, capture_feature};
     int changing_profile = 0;
+    /* One pre-open switch per payload run: after it, the profile already
+     * follows the console output and must not be recomputed in a loop. */
+    int mode_switch_done = 0;
     if (live_request) pbs_h264_enable_profiles();
     /* Diagnostic native frame-rate enum: 0=30, 1=60; 2 is unverified.
      * Streaming keeps the verified 60 fps profile and matching timestamps. */
@@ -577,7 +580,10 @@ avopen_retry:;
     fprintf(f, "%s %s %s\n", mode, argv[2], how);
     pbs_inject_t ctx;
     if (pbs_inject_begin(argv[2], &ctx)) {
-      fprintf(f, "begin failed errno=%d\n", errno);
+      /* pbs_find_pid does not set errno: a missing target and a failed attach
+       * both land here, so print the process table that the lookup saw. */
+      fprintf(f, "begin failed errno=%d target=%s; processes:\n", errno, argv[2]);
+      if (pbs_list_processes(f, 48) < 0) fprintf(f, "process table unavailable\n");
       fclose(f);
       return 1;
     }
@@ -591,7 +597,13 @@ avopen_retry:;
         if (probe_rc != LONG_MIN && (int32_t)(uint32_t)probe_rc >= 0 &&
             !pbs_inject_read_at(&ctx, base + 0x700, &output_mode, sizeof output_mode)) {
           fprintf(f, "Preflight videoOutMode=0x%x\n", output_mode);
-          if (output_mode == 0x10u ||
+          int auto_height = pbs_ps5_avoid_rejected_open(output_mode, height, automatic_resolution);
+          pbs_capture_profile natural;
+          if (auto_height && !pbs_capture_profile_for_height(auto_height, &natural)) {
+            width = natural.width; height = natural.height; capture_feature = natural.feature;
+            fprintf(f, "Auto capture profile=%dp feature=%u (mode=0x%x rejects 1440p)\n",
+                    auto_height, capture_feature, output_mode);
+          } else if (output_mode == 0x10u ||
               pbs_ps5_prefer_1080_before_open(capture_firmware, output_mode)) {
             width = 1920;
             height = 1080;
@@ -726,17 +738,32 @@ avopen_retry:;
       }
       long ar = call(&ctx, fn_set, (uint64_t[6]){grant_feature, (uint64_t)callback, 0, 0, 0, 0});
       fprintf(f, "SetCallback(%u) -> %s\n", grant_feature, fmt_rc(ar));
-      if (ar == LONG_MIN || (int32_t)(uint32_t)ar < 0) goto avopen_cleanup;
+      if (ar == LONG_MIN || (int32_t)(uint32_t)ar < 0) {
+        snprintf(failure_note, sizeof failure_note, "PBS: SetCallback(%u) 0x%08x",
+                 grant_feature, (unsigned)(uint32_t)ar);
+        goto avopen_cleanup;
+      }
       granted_callback = 1;
       char state[32] = "RUNNING";
       memcpy(scratch_zero + 0x600, state, sizeof state);
       if (pbs_inject_write(&ctx, scratch_zero, 0x800)) goto avopen_cleanup;
       ar = call(&ctx, fn_change, (uint64_t[6]){grant_feature, (uint64_t)base + 0x600, 0, 0, 0, 0});
       fprintf(f, "ChangeState(%u, RUNNING) -> %s\n", grant_feature, fmt_rc(ar));
-      if (ar == LONG_MIN || (int32_t)(uint32_t)ar < 0) goto avopen_cleanup;
+      if (ar == LONG_MIN || (int32_t)(uint32_t)ar < 0) {
+        snprintf(failure_note, sizeof failure_note, "PBS: ChangeState(%u) 0x%08x",
+                 grant_feature, (unsigned)(uint32_t)ar);
+        goto avopen_cleanup;
+      }
       intptr_t fn_enable = pbs_resolve_in(ctx.pid, "libSceAvcap2.sprx", "sceAvcap2EnableScanInEncode");
-      if (fn_enable) fprintf(f, "EnableScanInEncode() -> %s\n", fmt_rc(call(&ctx,
-          fn_enable, (uint64_t[6]){0, 0, 0, 0, 0, 0})));
+      if (fn_enable) {
+        long er = call(&ctx, fn_enable, (uint64_t[6]){0, 0, 0, 0, 0, 0});
+        fprintf(f, "EnableScanInEncode() -> %s\n", fmt_rc(er));
+        if (er != LONG_MIN && (int32_t)(uint32_t)er < 0) {
+          snprintf(failure_note, sizeof failure_note, "PBS: EnableScanInEncode 0x%08x",
+                   (unsigned)(uint32_t)er);
+          goto avopen_cleanup;
+        }
+      }
     }
     if (argc > 4) {
       intptr_t fn_mode = pbs_resolve_in(ctx.pid, "libSceAvcap2.sprx", "sceAvcap2GetVideoOutMode");
@@ -756,6 +783,25 @@ avopen_retry:;
       }
       fprintf(f, "Params videoOutMode=0x%x\n", video_mode);
       detected_video_mode = video_mode;
+      /* Let the HTTP layer refuse a profile the console output cannot drive,
+       * instead of attempting a reopen the firmware rejects. */
+      pbs_h264_note_output_mode(video_mode);
+      /* Never ask the encoder for a profile this output rejects: unwinding a
+       * rejected open still has to restore scan-in ownership and the
+       * arbitrator callback, and that repair runs on the host's main thread.
+       * Switch first, then reopen with the profile the output drives. */
+      int natural_height = mode_switch_done ? 0
+          : pbs_ps5_avoid_rejected_open(video_mode, height, automatic_resolution);
+      if (natural_height) {
+        pbs_capture_profile natural;
+        if (!pbs_capture_profile_for_height(natural_height, &natural)) {
+          fprintf(f, "Auto capture profile=%dp feature=%u (mode=0x%x rejects %dp before open)\n",
+                  natural_height, natural.feature, video_mode, height);
+          width = natural.width; height = natural.height; capture_feature = natural.feature;
+          mode_switch_done = 1;
+          goto avopen_cleanup;
+        }
+      }
     }
     if (offset_dump && !offset_dumped) {
       pbs_ps5_dump_export_offsets(f, ctx.pid);
@@ -809,13 +855,24 @@ avopen_cleanup:;
       clear_ok = clear_rc != LONG_MIN && (int32_t)(uint32_t)clear_rc >= 0;
     }
     clear_ok = clear_ok && owned_session_closed;
-    /* Retrying the smaller caller-owned profile is safe only after cleanup. */
-    int fallback_1080 = live_request && automatic_resolution && clear_ok && !ctx.asserted &&
-        pbs_ps5_should_fallback_1080(capture_firmware, open_result,
-                                     detected_video_mode, width, height);
-    if (fallback_1080)
-      fprintf(f, "OpenVideo rejected 1440p (0x%08x, video mode 0x%x); retrying 1080p with feature 12\n",
-              open_result, detected_video_mode);
+    /* A session that ended badly (payload crash, killed stream) can leave
+     * Avcap2 refusing every feature with 0x81950008: at a 2160p output one run
+     * saw 1440p, 2160p and 1080p all rejected although 1080p had opened minutes
+     * earlier with the same parameters. Terminate is safe with nothing open, so
+     * re-arm the encoder before retrying instead of repeating the rejection. */
+    if (open_result == 0x81950008u && !ctx.asserted && fn_term) {
+      long tr = call(&ctx, fn_term, (uint64_t[6]){0, 0, 0, 0, 0, 0});
+      fprintf(f, "Terminate() after rejected open -> %s\n", fmt_rc(tr));
+    }
+    /* Retrying another caller-owned profile is safe only after cleanup. Prefer
+     * the profile the console output drives; 1080p stays the last resort for
+     * modes that are not measured yet and for a rejected 4K open. */
+    int fallback_height = 0;
+    if (live_request && automatic_resolution && clear_ok && !ctx.asserted)
+      fallback_height = pbs_ps5_retry_height(open_result, detected_video_mode, width, height);
+    if (fallback_height)
+      fprintf(f, "OpenVideo rejected %dp (0x%08x, video mode 0x%x); retrying %dp\n",
+              height, open_result, detected_video_mode, fallback_height);
     pbs_inject_end(&ctx);
     fclose(f);
     /* Reconfigure only after Stop/Close/ClearCallback completed for the old
@@ -826,10 +883,11 @@ avopen_cleanup:;
       capture_feature = previous_profile.feature;
     }
     changing_profile = 0;
-    if (fallback_1080) {
-      width = 1920;
-      height = 1080;
-      capture_feature = 12;
+    if (fallback_height) {
+      pbs_capture_profile fallback;
+      if (!pbs_capture_profile_for_height(fallback_height, &fallback)) {
+        width = fallback.width; height = fallback.height; capture_feature = fallback.feature;
+      }
     }
     int requested_height = 0;
     if (live_request && clear_ok && !ctx.asserted && pbs_h264_take_profile_request(&requested_height)) {

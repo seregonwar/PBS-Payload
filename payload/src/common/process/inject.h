@@ -48,6 +48,10 @@ typedef struct {
 
 /* Find a process by name. */
 pid_t pbs_find_pid(const char *name);
+/* Write "pid comm" for up to max live processes to out; returns the count or
+ * -1 when the process table cannot be read. Diagnostics only: the payload uses
+ * it to explain a failed lookup instead of an errno-less "begin failed". */
+int pbs_list_processes(FILE *out, size_t max);
 #ifdef PBS_PS4
 /* Read-only process birth epoch from kinfo_proc. Returns 0 if unavailable.
  * Used to bind global RemotePlay capture ownership to a specific process

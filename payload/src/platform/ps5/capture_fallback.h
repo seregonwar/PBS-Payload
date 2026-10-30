@@ -30,3 +30,43 @@ static inline int pbs_ps5_should_fallback_1080(
   return width == 2560 && height == 1440 &&
          open_result == 0x81950008u;
 }
+
+/* The capture height the console's own video output implies. Only measured
+ * pairs are encoded: a 2160p output (0x13c) rejects the 1440p feature with
+ * 0x81950008 while accepting 1080p, and a 1440p output (0x138) accepts 1440p.
+ * 0 means "not measured for this mode". */
+static inline int pbs_ps5_profile_height_for_video_mode(uint32_t video_mode) {
+  switch (video_mode) {
+    case 0x10u: return 1080;
+    case 0x138u: return 1440;
+    case 0x13cu: return 2160;
+    default: return 0;
+  }
+}
+
+/* An automatic open must not request a profile this output mode is known to
+ * reject: a rejected open still has to unwind scan-in and the arbitrator
+ * callback, and that repair path runs on the host's main thread. Returns the
+ * height to open instead, or 0 when the request can go ahead unchanged. */
+static inline int pbs_ps5_avoid_rejected_open(
+    uint32_t video_mode, int height, int automatic) {
+  if (!automatic) return 0;
+  int natural = pbs_ps5_profile_height_for_video_mode(video_mode);
+  return natural && height == 1440 && natural == 2160 ? natural : 0;
+}
+
+/* Height to retry after a cleanly rejected automatic open, or 0 when the
+ * rejection is not one this policy covers. A rejected 1440p request retries at
+ * the profile the output drives (1080p when the mode is not measured); a
+ * rejected 4K request retries 1080p, the only smaller profile a 2160p output
+ * has been observed to accept, so a console that refuses 4K still streams. */
+static inline int pbs_ps5_retry_height(
+    uint32_t open_result, uint32_t video_mode, int width, int height) {
+  if (open_result != 0x81950008u) return 0;
+  if (width == 2560 && height == 1440) {
+    int natural = pbs_ps5_profile_height_for_video_mode(video_mode);
+    return natural ? natural : 1080;
+  }
+  if (width == 3840 && height == 2160) return 1080;
+  return 0;
+}

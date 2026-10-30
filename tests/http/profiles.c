@@ -71,6 +71,29 @@ int main(void) {
   assert(!pbs_h264_server_start(18092,3840,2160,sps,sizeof sps,pps,sizeof pps));
   request("GET","/config.json",200);
   assert(strstr(response,"\"height\":2160")&&strstr(response,"\"profile_changing\":false")&&strstr(response,"\"profile_error\":false"));
+  /* A console output mode that cannot drive a profile refuses the request with
+   * a reason instead of attempting an encoder reopen the firmware rejects. */
+  assert(!pbs_h264_server_start(18092,3840,2160,sps,sizeof sps,pps,sizeof pps));
+  pbs_h264_note_output_mode(0x10); /* 1080p output */
+  request("POST","/capture/profile?height=2160",409);
+  assert(strstr(response,"Console output is 1080p"));
+  request("POST","/capture/profile?height=1440",409);
+  request("POST","/capture/profile?height=1080",200);
+  int ceiling_pick=0;
+  assert(pbs_h264_take_restart_request()&&pbs_h264_take_profile_request(&ceiling_pick)&&ceiling_pick==1080);
+  assert(!pbs_h264_server_start(18092,1920,1080,sps,sizeof sps,pps,sizeof pps));
+  /* A 2160p output rejects the 1440p feature while accepting 4K and 1080p. */
+  pbs_h264_note_output_mode(0x13c);
+  request("POST","/capture/profile?height=1440",409);
+  assert(strstr(response,"Console output is 2160p"));
+  request("POST","/capture/profile?height=2160",200);
+  int four_k=0;
+  assert(pbs_h264_take_restart_request()&&pbs_h264_take_profile_request(&four_k)&&four_k==2160);
+  assert(!pbs_h264_server_start(18092,3840,2160,sps,sizeof sps,pps,sizeof pps));
+  /* An unknown output mode lifts the restrictions again. */
+  pbs_h264_note_output_mode(0);
+  request("POST","/capture/profile?height=1440",200);
+  pbs_h264_profile_failed();
   pbs_h264_server_stop();pbs_h264_server_wait();
-  puts("Profile transitions, feature mapping, rollback state and recording conflicts verified");
+  puts("Profile transitions, feature mapping, rollback state, output-mode limits and recording conflicts verified");
 }
