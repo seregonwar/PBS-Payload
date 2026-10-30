@@ -20,7 +20,7 @@ latency are not supported claims.
 
 See [BUILDING.md](BUILDING.md). Build with LLVM and a PS5 Payload SDK, then
 load `payload/build/pbs.elf` with your existing payload loader. No arguments
-starts the stream on port 8080. Open `http://<console-ip>:8080/` in a compatible
+starts the stream on port 9999. Open `http://<console-ip>:9999/` in a compatible
 browser and enable audio with a user gesture.
 
 A console environment able to load homebrew payloads is required. No jailbreak,
