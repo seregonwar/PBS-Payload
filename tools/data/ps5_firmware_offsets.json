@@ -27,6 +27,17 @@
       "notes": "The SIMD constructor's RIP-relative constants decode one byte early in this dump; the parser applies a +1 shift only when it yields a complete recognized descriptor pair (rate 0x68/0x20, image 0xe8/0x40), which it does here. mask tail is 0x14 bytes, not 0x24. Exact-only: another 4.00 build is refused"
     },
     {
+      "release": "4.51",
+      "firmware": "0x04510001",
+      "profile": "451",
+      "status": "exact",
+      "expected": {"request_size": "0x230", "kind_offset": "0x100", "native_size_store_rva": "0x1b7f13"},
+      "source": "Fw4.51.zip",
+      "sha256": "4E9D4834B0C4DD8ACE7D93271F11CA81EF3BC282301CE51E5BFC617EE9DB1C88",
+      "evidence": "PS5 dump of fw 0x04510001 (2026-10-30) from pid 61, the SceRemotePlay process: a 4 MiB libSceAvcap2.sprx.prefix.bin plus the eboot prefix. The pid 57 image is SceAvCapture and has no RemotePlay constructor, so it is rejected instead of being merged",
+      "notes": "Same layout as 4.00 with every address one byte later: open_video 0x340 (0x33f), IPC 0x3ac5 (0x3ac4), size store 0x1b7f13 (0x1b7f12); request 0x230 and kind 0x100 are identical. Exact-only: another 4.51 build is refused"
+    },
+    {
       "release": "6.02",
       "firmware": "0x06020004",
       "profile": "602",
@@ -64,9 +75,9 @@
       "firmware": "0x09400008",
       "profile": "940",
       "status": "exact",
-      "expected": {"request_size": "0x2b0", "kind_offset": "0x168", "native_size_store_rva": "0x0"},
+      "expected": {"request_size": "0x2b0", "kind_offset": "0x168", "native_size_store_rva": "0x4da1d"},
       "source": "fw9.40.zip",
-      "notes": "no native RemotePlay image in the dump: native_size_store_rva 0x0 means inherited from 9.20; the Avcap2 ABI is measured on 9.40 itself"
+      "notes": "Complete 2026-10-30 dump: native RemotePlay constructor measured at 0x4da1d; request geometry and focused Avcap2/RemotePlay instruction spans match 9.20. This is static ABI evidence, not hardware validation at 120 Hz."
     },
     {
       "release": "10.01",

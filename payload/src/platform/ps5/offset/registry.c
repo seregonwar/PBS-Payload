@@ -3,6 +3,7 @@
 
 extern const pbs_ps5_offset_profile pbs_ps5_offsets_320;
 extern const pbs_ps5_offset_profile pbs_ps5_offsets_400;
+extern const pbs_ps5_offset_profile pbs_ps5_offsets_451;
 extern const pbs_ps5_offset_profile pbs_ps5_offsets_602;
 extern const pbs_ps5_offset_profile pbs_ps5_offsets_720;
 extern const pbs_ps5_offset_profile pbs_ps5_offsets_840;
@@ -25,6 +26,7 @@ const pbs_ps5_offset_profile *pbs_ps5_find_offsets(uint32_t firmware) {
   switch (firmware) {
     case 0x03200004u: return &pbs_ps5_offsets_320;
     case 0x04000042u: return &pbs_ps5_offsets_400;
+    case 0x04510001u: return &pbs_ps5_offsets_451;
     case 0x06020004u: return &pbs_ps5_offsets_602;
     case 0x07200005u: return &pbs_ps5_offsets_720;
     case 0x08400005u: return &pbs_ps5_offsets_840;

@@ -9,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 from pathlib import Path
 
@@ -19,6 +20,32 @@ import generate_ps5_offsets as offsets
 
 
 class GenerateOffsetsTests(unittest.TestCase):
+    def test_measured_940_constructor_is_not_replaced_by_legacy_reference(self):
+        measured = offsets.read_profile_fields(PROFILES / "940.c")
+        avcap_keys = {"open_video", "ipc_command", "size", "kind"}
+        abi = {k: v for k, v in measured.items() if k in avcap_keys}
+        native = {k: v for k, v in measured.items() if k not in avcap_keys}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dumps = root / "dumps"
+            dumps.mkdir()
+            (dumps / "fw9.40.zip").touch()
+            reference = root / "obsolete-reference.bin"
+            reference.write_bytes(b"must never override the measured constructor")
+            args = ["generate_ps5_offsets.py", str(dumps), "--out", str(root / "out"),
+                    "--reference-940", str(reference)]
+            members = {"ps5-09400008-test/" + offsets.MODULE: b"avcap",
+                       "ps5-09400008-test/" + offsets.EBOOT: b"remoteplay"}
+            with mock.patch.object(sys, "argv", args), \
+                 mock.patch.object(offsets, "load_members", return_value=members), \
+                 mock.patch.object(offsets, "avcap_layout", return_value=abi) as parse_avcap, \
+                 mock.patch.object(offsets, "constructor_layout", return_value=native), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(offsets.main(), 0)
+            parse_avcap.assert_called_once_with(b"avcap")
+            actual = offsets.read_profile_fields(root / "out/940.c")
+            self.assertEqual(actual["constructor"], 0x4da1d)
+
     def test_public_release_catalog_keeps_patch_names_separate_from_kernel_ids(self):
         import json
         catalog = json.loads((TOOLS / "ps5_firmware_releases.json").read_text(encoding="utf-8"))

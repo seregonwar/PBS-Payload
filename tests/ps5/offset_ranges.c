@@ -80,6 +80,10 @@ int main(void) {
    * profile is selected without any opt-in define. Exact-only like 3.20. */
   check(0x04000042,0x04000042,0x230);
   check(0x04000043,0,0);
+  /* 4.51 repeats the 4.00 layout one byte later (open_video 0x340, IPC 0x3ac5,
+   * size store 0x1b7f13): it has its own dump, so it has its own exact ID. */
+  check(0x04510001,0x04510001,0x230);
+  check(0x04510000,0,0);
   puts("PASS: exact profile precedence, family interiors, build revisions, endpoints and gaps");
   return 0;
 }

@@ -10,7 +10,7 @@ const pbs_ps5_offset_profile pbs_ps5_offsets_940 = {
     .kind_offset = 0x168u,
   },
   .remoteplay = {
-    .request_size_store_rva = 0x0u,
+    .request_size_store_rva = 0x4da1du,
     .rate = {
       .offset = 0x90u,
       .size = 0xd0u,

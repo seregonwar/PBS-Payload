@@ -6,14 +6,17 @@ numeric version; a release tag may add a suffix (`v0.2.0-beta.1`).
 ## v0.2.0-beta.1 — 2026-10-29
 
 Beta, pre-release. First release of the 0.2.0 line: both console payloads build
-from this tree and the PS5 side ships 19 measured firmware profiles.
+from this tree and the PS5 side ships 20 measured firmware profiles.
 
 ### Assets
 
-| Asset | Platform | Loaded on | SHA-256 |
-| --- | --- | --- | --- |
-| `PBS-Payload-0.2.0-beta.1-ps5.elf` | PS5 | PS5 | `153085cd515495a35accd3d6b4d0cf2e8d7469fa2040dac46e682996fa513467` |
-| `PBS-Payload-0.2.0-beta.1-ps4.elf` | PS4 | PS4 11.00 worker backend | `299fbe7bd7b95fd03045246aed7c36bcd62a0151975527671af615d858737c63` |
+| Asset | Platform | Loaded on |
+| --- | --- | --- |
+| `PBS-Payload-0.2.0-beta.1-ps5.elf` | PS5 | PS5 |
+| `PBS-Payload-0.2.0-beta.1-ps4.elf` | PS4 | PS4 11.00 worker backend |
+
+Each asset ships with a `.sha256` sidecar and `SHA256SUMS.txt` covers the whole
+version.
 
 ### PS5 firmware coverage
 
@@ -26,6 +29,7 @@ neighbouring version.
 | --- | --- | --- | --- |
 | 3.20 | `0x03200004` | `0x218` | `0xe8` |
 | 4.00 | `0x04000042` | `0x230` | `0x100` |
+| 4.51 | `0x04510001` | `0x230` | `0x100` |
 | 6.02 | `0x06020004` | `0x2a8` | `0x168` |
 | 7.20 | `0x07200005` | `0x2a8` | `0x168` |
 | 8.40 | `0x08400005` | `0x2a8` | `0x168` |

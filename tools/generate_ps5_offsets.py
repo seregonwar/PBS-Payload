@@ -804,11 +804,11 @@ def main() -> int:
         profiles[fw] = (abi | native, avcap_source + " | " + native_source)
         print(f"{fw:08x}: size=0x{abi['size']:x} kind=0x{abi['kind']:x} "
               f"constructor=0x{native['constructor']:x}")
-    if args.reference_940 and 0x09200005 not in profiles:
+    if args.reference_940 and 0x09400008 not in profiles and 0x09200005 not in profiles:
         if reference_explicit:
             raise ValueError("cannot inherit 9.40 layout without validated 9.20 dump")
         print("09400008: skipped inherited layout (9.20 dump not in this batch)")
-    elif args.reference_940:
+    elif args.reference_940 and 0x09400008 not in profiles:
         fw = 0x09400008
         abi = avcap_layout(args.reference_940.read_bytes())
         base = profiles.get(0x09200005)
