@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="payload/web/banner.png" alt="PBS Payload" width="68%" />
+<img src="payload/web/logo.png#gh-dark-mode-only" alt="PBS" width="180" />
+<img src="payload/web/logo-dark.png#gh-light-mode-only" alt="PBS" width="180" />
 
 <br/><br/>
 
@@ -270,9 +271,15 @@ If PBS Payload is useful to you and you want to support continued work:
 Source code, including the embedded viewer, is licensed
 **GPL-3.0-or-later** — see [LICENSE](LICENSE). Existing attribution is retained.
 
-`payload/web/banner.png` is Seregonwar's branding, not GPL-licensed artwork: it
-is included for use with this project, embedded only when the build asks for it,
-and unrelated reuse needs the owner's permission.
+`payload/web/logo.png` (bright, for dark backgrounds) and `payload/web/logo-dark.png`
+(the same mark, inverted for light backgrounds) are PBS branding, not GPL-licensed
+artwork: they are included for use with this project, and unrelated reuse needs the
+owner's permission. The README picks the right one with GitHub's
+`#gh-dark-mode-only` / `#gh-light-mode-only` fragments.
+
+`payload/web/banner.png` is the stream overlay served at `/banner.png`: it is
+embedded only when the build asks for it (`PBS_WEB_LOGO`), it is not GPL-licensed
+either, and a default build does not contain it.
 
 <div align="center">
 
