@@ -838,6 +838,12 @@ avopen_cleanup:;
         previous_profile = (pbs_capture_profile){width, height, capture_feature};
         width = next.width; height = next.height; capture_feature = next.feature;
         changing_profile = 1;
+        /* A viewer request is explicit: it outranks the automatic-startup
+         * heuristic, which must never silently reopen at a smaller profile and
+         * leave the requested one unanswered. */
+        automatic_resolution = 0;
+        fprintf(f, "Explicit profile request %dp; automatic startup profile disabled\n",
+                requested_height);
       }
     }
     /* A clean OpenVideo rejection can be transient while scan-in ownership

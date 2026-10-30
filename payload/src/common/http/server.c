@@ -114,6 +114,18 @@ void pbs_h264_profile_failed(void) {
   pthread_mutex_unlock(&live.lock);
 }
 
+/* A resolution change is a transaction between /capture/profile and the next
+ * successful start. Every start has to resolve it: confirm when the stream runs
+ * at the requested size, report a failure when it does not (an automatic
+ * fallback or a firmware rejection can restart at another size). Leaving it
+ * pending wedges the transaction and rejects every later request with 409.
+ * Call with live.lock held. */
+static void resolve_profile_change(int height) {
+  if (!live.profile_changing) return;
+  live.profile_changing = 0;
+  if (live.profile_height != height) live.profile_error = 1;
+}
+
 
 static uint64_t milliseconds(void) {
   struct timespec t;
@@ -647,7 +659,7 @@ int pbs_h264_server_start_at_rate(int port, int width, int height, int fps,
     live.started = milliseconds(); live.audio_started = 0; live.audio_generation++;
     live.last_keyframe_ms = live.last_key_request_ms = live.started;
     live.width = width; live.height = height; live.fps = fps;
-    if (live.profile_changing && live.profile_height == height) live.profile_changing = 0;
+    if (live.profile_changing) resolve_profile_change(height);
     memcpy(live.sps, sps, sps_len); live.sps_len = sps_len;
     memcpy(live.pps, pps, pps_len); live.pps_len = pps_len;
     live.generation++; live.key_request = 1;
@@ -683,5 +695,8 @@ int pbs_h264_server_start_at_rate(int port, int width, int height, int fps,
   memcpy(live.pps, pps, pps_len); live.pps_len = pps_len;
   if (pthread_create(&live.acceptor, NULL, accept_thread, NULL)) { live.running = 0; close(fd); live.listener = -1; return -1; }
   live.acceptor_valid = 1;
+  pthread_mutex_lock(&live.lock);
+  resolve_profile_change(height);
+  pthread_mutex_unlock(&live.lock);
   return 0;
 }

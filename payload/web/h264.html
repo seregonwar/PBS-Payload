@@ -116,7 +116,7 @@ async function refreshProfiles(){
  const disabled=profileBusy||recording;
  if(resolution.disabled!==disabled)resolution.disabled=disabled;
  if(applyResolution.disabled!==disabled)applyResolution.disabled=disabled;
- const text=c.profile_error?'Profile unavailable. The previous resolution was restored.':profileBusy?'Applying resolution; reconnecting the stream...':recording?'Stop recording before changing resolution.':'Active: '+c.height+'p. Lower resolutions reduce network and decoding load.';
+ const text=c.profile_error?'Profile unavailable. The stream continues at '+c.height+'p.':profileBusy?'Applying resolution; reconnecting the stream...':recording?'Stop recording before changing resolution.':'Active: '+c.height+'p. Lower resolutions reduce network and decoding load.';
  if(profileInfo.textContent!==text)profileInfo.textContent=text;
  }finally{profilesFetching=false;}
 }

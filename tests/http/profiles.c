@@ -50,6 +50,27 @@ int main(void) {
   pbs_h264_profile_failed();
   request("GET","/config.json",200);
   assert(strstr(response,"\"height\":1440")&&strstr(response,"\"profile_error\":true"));
+  /* Regression: a change that ends at another height (the automatic 1080p
+   * fallback, or a rejected reopen that restarts at the previous size) must
+   * resolve the transaction. Leaving it pending answers 409 to every later
+   * request for the rest of the session. */
+  assert(!pbs_h264_server_start(18092,2560,1440,sps,sizeof sps,pps,sizeof pps));
+  request("POST","/capture/profile?height=2160",200);
+  assert(pbs_h264_take_restart_request());
+  int fallback=0;
+  assert(pbs_h264_take_profile_request(&fallback)&&fallback==2160);
+  assert(!pbs_h264_server_start(18092,1920,1080,sps,sizeof sps,pps,sizeof pps));
+  request("GET","/config.json",200);
+  assert(strstr(response,"\"height\":1080")&&strstr(response,"\"profile_changing\":false")&&strstr(response,"\"profile_error\":true"));
+  /* The next request must be accepted, and a start at the requested size
+   * confirms it and clears the failure flag. */
+  request("POST","/capture/profile?height=2160",200);
+  assert(pbs_h264_take_restart_request());
+  int retry=0;
+  assert(pbs_h264_take_profile_request(&retry)&&retry==2160);
+  assert(!pbs_h264_server_start(18092,3840,2160,sps,sizeof sps,pps,sizeof pps));
+  request("GET","/config.json",200);
+  assert(strstr(response,"\"height\":2160")&&strstr(response,"\"profile_changing\":false")&&strstr(response,"\"profile_error\":false"));
   pbs_h264_server_stop();pbs_h264_server_wait();
   puts("Profile transitions, feature mapping, rollback state and recording conflicts verified");
 }

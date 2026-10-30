@@ -110,6 +110,17 @@ than served with a geometry it was never measured on.
   (`PBS_WEB_LOGO=1`) and off by default, so `/banner.png` answers 404 in a
   default build.
 
+### Fixed
+
+- A resolution change that ended at a different size — the automatic 1080p
+  fallback, or a rejected reopen that restarted at the previous profile — left
+  the change marked in progress, so `/capture/profile` answered 409 to every
+  later request for the rest of the session. The transaction is now resolved on
+  every start and reported through `profile_error`.
+- A viewer request outranks the automatic startup profile: asking for 2160p (or
+  any explicit size) is no longer reopened at 1080p by the firmware fallback
+  heuristic.
+
 ### Build, CI and release
 
 - `release.yml`: validate the version against `VERSION`, build both payloads,
