@@ -8,7 +8,7 @@ static const pbs_input_backend *configured;
 static uint32_t firmware = 0x09400008;
 static int init_rc, add_rc, delete_rc, privilege_rc, insert_rc;
 static int init_calls, add_calls, delete_calls, privilege_value, missing_export, invalid_id;
-static int require_load, module_loaded, load_calls, load_rc;
+static int load_calls, load_failure, resolve_calls;
 static unsigned char inserted[0x80];
 
 uint32_t kernel_get_fw_version(void) {
@@ -18,26 +18,10 @@ void pbs_input_configure(const pbs_input_backend *backend, void *opaque) {
   assert(!opaque);
   configured = backend;
 }
-int kernel_dynlib_handle(pid_t pid, const char *name, uint32_t *handle) {
-  assert(pid == getpid() && !strcmp(name, "libScePad.sprx"));
-  if (require_load && !module_loaded) {
-    return -1;
-  }
-  *handle = 1;
-  return 0;
-}
-int sceKernelLoadStartModule(const char *name, size_t size, const void *args, uint32_t flags,
-                             void *options, uint32_t *result) {
-  (void)name;
-  (void)size;
-  (void)args;
-  (void)flags;
-  (void)options;
-  (void)result;
-  assert(!strcmp(name, "/system/common/lib/libScePad.sprx"));
+void *dlopen(const char *name, int flags) {
+  assert(!strcmp(name, "libScePad.sprx") && flags == RTLD_NOW);
   load_calls++;
-  module_loaded = 1;
-  return load_rc;
+  return load_failure ? NULL : (void *)0x2023;
 }
 static int mock_init(void) {
   init_calls++;
@@ -72,35 +56,35 @@ static int mock_delete(int device) {
   delete_calls++;
   return delete_rc;
 }
-intptr_t kernel_dynlib_dlsym(pid_t pid, uint32_t module, const char *name) {
-  assert(pid == getpid() && module == (require_load ? 0x2023u : 1u));
+void *dlsym(void *module, const char *name) {
+  assert(module == (void *)0x2023);
+  resolve_calls++;
   if (missing_export && !strcmp(name, "scePadVirtualDeviceInsertData")) {
-    return -1;
+    return NULL;
   }
   if (!strcmp(name, "scePadInit")) {
-    return (intptr_t)mock_init;
+    return (void *)mock_init;
   }
   if (!strcmp(name, "scePadSetProcessPrivilege")) {
-    return (intptr_t)mock_privilege;
+    return (void *)mock_privilege;
   }
   if (!strcmp(name, "scePadVirtualDeviceAddDevice")) {
-    return (intptr_t)mock_add;
+    return (void *)mock_add;
   }
   if (!strcmp(name, "scePadVirtualDeviceInsertData")) {
-    return (intptr_t)mock_insert;
+    return (void *)mock_insert;
   }
   if (!strcmp(name, "scePadVirtualDeviceDeleteDevice")) {
-    return (intptr_t)mock_delete;
+    return (void *)mock_delete;
   }
   assert(!"unexpected export");
-  return -1;
+  return NULL;
 }
 static void reset(void) {
   memset(&pad, 0, sizeof pad);
   init_rc = add_rc = delete_rc = privilege_rc = insert_rc = 0;
   init_calls = add_calls = delete_calls = privilege_value = missing_export = invalid_id = 0;
-  require_load = module_loaded = load_calls = 0;
-  load_rc = 0x2023;
+  load_calls = load_failure = resolve_calls = 0;
 }
 int main(void) {
   static const uint32_t firmwares[] = {0x03200004, 0x04000042, 0x04510001, 0x05000040, 0x05100023,
@@ -122,21 +106,21 @@ int main(void) {
   firmware = 0x09400008;
 
   reset();
-  require_load = 1;
   assert(!connect_pad(NULL) && load_calls == 1 && init_calls == 1 && pad.owned);
   assert(!connect_pad(NULL) && load_calls == 1 && add_calls == 1);
   assert(!destroy_pad(NULL));
 
   reset();
-  require_load = 1;
-  load_rc = 0;
-  assert(connect_pad(NULL) && load_calls == 1 && !init_calls && !add_calls);
+  load_failure = 1;
+  assert(connect_pad(NULL) && load_calls == 1 && !resolve_calls && !init_calls);
+  assert(connect_pad(NULL) && load_calls == 1);
   assert(!destroy_pad(NULL));
 
   reset();
   missing_export = 1;
-  assert(connect_pad(NULL) && !init_calls && !add_calls);
-  assert(!disconnect_pad(NULL));
+  assert(connect_pad(NULL) && load_calls == 1 && resolve_calls == 5 && !init_calls && !add_calls);
+  assert(connect_pad(NULL) && load_calls == 1 && resolve_calls == 5);
+  assert(disconnect_pad(NULL));
   assert(!destroy_pad(NULL));
   reset();
   init_rc = -7;

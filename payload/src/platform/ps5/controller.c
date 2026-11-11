@@ -5,19 +5,19 @@
 #if PBS_PS5_CONTROLLER
 #include "common/input/controller.h"
 #include "platform/ps5/offset/profile.h"
+#include <dlfcn.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 #include <ps5/kernel.h>
 
-int sceKernelLoadStartModule(const char *, size_t, const void *, uint32_t, void *, uint32_t *);
 typedef struct {
   int (*init)(void);
   int (*privilege)(int);
   int (*add)(const void *, void *);
   int (*insert)(int, const void *);
   int (*remove)(int);
+  void *module;
   uint32_t device;
   int ready, privileged, owned, uncertain, unhealthy;
 } native_pad;
@@ -37,28 +37,25 @@ static int prepare(void) {
   if (pad.ready) {
     return 0;
   }
-  uint32_t module = 0;
-  if (kernel_dynlib_handle(getpid(), "libScePad.sprx", &module)) {
-    int rc = sceKernelLoadStartModule("/system/common/lib/libScePad.sprx", 0, NULL, 0, NULL, NULL);
-    log_result("Load libScePad", rc);
-    /* LoadStartModule returns the loaded module handle on success.  Do not
-     * discard it and look the module up by name again: on newer firmwares
-     * (observed on 10.60) the load succeeds with e.g. 0x2023 while the
-     * immediate name lookup still fails, preventing all controller exports
-     * from being resolved. */
-    if (rc <= 0) {
+  if (!pad.module) {
+    /* The SDK registers system modules before loading and resolving them.
+     * Use that path for the FW 12.00 failure between load and init. Keep the
+     * module for the payload lifetime, as the previous path did. */
+    pad.module = dlopen("libScePad.sprx", RTLD_NOW);
+    log_result("Open libScePad", pad.module ? 0 : -1);
+    if (!pad.module) {
+      pad.unhealthy = 1;
       return -1;
     }
-    module = (uint32_t)rc;
   }
-  pad.init = (void *)kernel_dynlib_dlsym(getpid(), module, "scePadInit");
-  pad.privilege = (void *)kernel_dynlib_dlsym(getpid(), module, "scePadSetProcessPrivilege");
-  pad.add = (void *)kernel_dynlib_dlsym(getpid(), module, "scePadVirtualDeviceAddDevice");
-  pad.insert = (void *)kernel_dynlib_dlsym(getpid(), module, "scePadVirtualDeviceInsertData");
-  pad.remove = (void *)kernel_dynlib_dlsym(getpid(), module, "scePadVirtualDeviceDeleteDevice");
-  if ((intptr_t)pad.init <= 0 || (intptr_t)pad.privilege <= 0 || (intptr_t)pad.add <= 0 ||
-      (intptr_t)pad.insert <= 0 || (intptr_t)pad.remove <= 0) {
+  pad.init = dlsym(pad.module, "scePadInit");
+  pad.privilege = dlsym(pad.module, "scePadSetProcessPrivilege");
+  pad.add = dlsym(pad.module, "scePadVirtualDeviceAddDevice");
+  pad.insert = dlsym(pad.module, "scePadVirtualDeviceInsertData");
+  pad.remove = dlsym(pad.module, "scePadVirtualDeviceDeleteDevice");
+  if (!pad.init || !pad.privilege || !pad.add || !pad.insert || !pad.remove) {
     log_result("Required virtual-pad exports unavailable", -1);
+    pad.unhealthy = 1;
     return -1;
   }
   int rc = pad.init();
