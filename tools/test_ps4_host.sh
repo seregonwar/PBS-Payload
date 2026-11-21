@@ -23,6 +23,8 @@ run ps5-capture-audio tests/ps5/capture_audio_request.c
 run ps5-controller tests/ps5/controller_backend.c payload/src/platform/ps5/offset/*.c
 run ps5-controller-disabled -pthread -DPBS_PS5_CONTROLLER=0 tests/ps5/controller_disabled.c payload/src/common/input/controller.c
 run problem-log tests/common/problem_log.c payload/src/common/diagnostics/problem_log.c
+run config tests/common/config.c payload/src/common/config/config.c
+run log -pthread tests/common/log.c payload/src/common/log/log.c payload/src/common/config/config.c
 run offset-report tests/ps4/dump/offset_report.c tools/dump/ps4/offset_report.c
 run kernel-image tests/ps4/dump/kernel_image.c tools/dump/ps4/kernel_image.c
 run layout tests/ps4/system/layout.c payload/src/platform/ps4/system/layout.c

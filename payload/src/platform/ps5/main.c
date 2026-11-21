@@ -19,8 +19,10 @@
 
 
 
+#include "common/config/config.h"
 #include "common/http/server.h"
 #include "common/input/controller.h"
+#include "common/log/log.h"
 #include "common/media/profiles.h"
 #include "common/process/inject.h"
 #include "platform/ps5/capture_fallback.h"
@@ -86,6 +88,36 @@ static FILE *open_report(const char *name, const char *mode) {
   FILE *f = fopen(path, mode);
   if (f) setvbuf(f, NULL, _IONBF, 0);
   return f;
+}
+
+/* Startup configuration (/data/pbs/pbs.conf). Rejected lines are kept here and
+ * written to the startup report once /data/pbs is known to exist. Messages
+ * never contain configuration values, so nothing secret is recorded. */
+#define PBS_CONFIG_NOTES 8
+typedef struct {
+  int total;   /* every rejected line, so the report never undercounts */
+  int stored;  /* detail lines kept, at most PBS_CONFIG_NOTES */
+  unsigned line[PBS_CONFIG_NOTES];
+  char message[PBS_CONFIG_NOTES][96];
+} config_notes_t;
+
+static void note_config_issue(void *user, unsigned line, const char *message) {
+  config_notes_t *notes = user;
+  notes->total++;
+  if (notes->stored >= PBS_CONFIG_NOTES) return;
+  notes->line[notes->stored] = line;
+  snprintf(notes->message[notes->stored], sizeof notes->message[0], "%s", message);
+  notes->stored++;
+}
+
+/* Same capture-request fields the 720p/1080p/1440p/2160p arguments select. */
+static void apply_config_resolution(char **serve_args, int *automatic_resolution, int height) {
+  if (height == 720) { serve_args[4] = "12"; serve_args[8] = "1280"; serve_args[9] = "720"; }
+  else if (height == 1080) { serve_args[4] = "12"; serve_args[8] = "1920"; serve_args[9] = "1080"; }
+  else if (height == 1440) { serve_args[4] = "11"; serve_args[8] = "2560"; serve_args[9] = "1440"; }
+  else if (height == 2160) { serve_args[4] = "10"; serve_args[8] = "3840"; serve_args[9] = "2160"; }
+  else return;
+  *automatic_resolution = 0;
 }
 
 static unsigned char scratch_zero[4096];
@@ -518,6 +550,14 @@ int main(int argc, char **argv) {
 #endif
   int audio_mode = 2;
   int automatic_resolution = 1;
+  /* Optional /data/pbs/pbs.conf. Absent file: every field stays unset and the
+   * defaults above and below apply unchanged. Arguments override the file. */
+  pbs_config_t config;
+  config_notes_t config_notes;
+  char config_port[8];
+  memset(&config_notes, 0, sizeof config_notes);
+  pbs_config_init(&config);
+  int config_status = pbs_config_load(&config, PBS_DATA_DIR "/pbs.conf", note_config_issue, &config_notes);
   if (!strcmp(mode, "avserve")) {
     live_request = 1;
     native_rate_config = 1;
@@ -526,6 +566,9 @@ int main(int argc, char **argv) {
 #endif
     requested_min_qp = 18;
     requested_video_bitrate = 60000000;
+    if (config.minqp) requested_min_qp = (uint32_t)config.minqp;
+    if (config.bitrate) requested_video_bitrate = config.bitrate;
+    if (config.controller == 0) controller_enabled = 0; /* the file can only disable it */
     for (int i = 2; i < argc; i++) {
       if (!strncmp(argv[i], "bitrate=", 8)) {
         char *end = NULL;
@@ -551,6 +594,12 @@ int main(int argc, char **argv) {
     }
     requested_video_budget = requested_video_bitrate;
     audio_mode = 2; /* Live PCM audio for connected viewers. */
+    if (config.audio == 0) audio_mode = 0;
+    apply_config_resolution(serve_args, &automatic_resolution, config.height);
+    if (config.port) {
+      snprintf(config_port, sizeof config_port, "%d", config.port);
+      serve_args[7] = config_port;
+    }
     for (int i = 2; i < argc; i++) {
       if (!strncmp(argv[i], "bitrate=", 8)) continue;
       if (!strncmp(argv[i], "minqp=", 6)) continue;
@@ -576,6 +625,27 @@ int main(int argc, char **argv) {
     notify("PBS: cannot create /data/pbs");
     return 1;
   }
+  /* Control-path log. Opened here, before the HTTP server, the controller and
+   * the worker start any thread, because the level is fixed at open time. The
+   * capture loop keeps recording through the problem index, not through this. */
+  pbs_log_open(PBS_DATA_DIR "/pbs.log",
+               config.log_level < 0 ? PBS_LOG_INFO : config.log_level, 0);
+  pbs_log_info("payload start revision=%s firmware=0x%08x controller=%d audio=%d",
+               PBS_PS5_RUNTIME_REVISION, kernel_get_fw_version(), controller_enabled, audio_mode);
+  if (config_status == 0) {
+    char summary[192];
+    pbs_config_describe(&config, summary, sizeof summary);   /* never prints the token */
+    pbs_log_info("config loaded rejected_lines=%d %s", config_notes.total, summary);
+    for (int n = 0; n < config_notes.stored; n++)
+      pbs_log_warn("config line %u: %s", config_notes.line[n], config_notes.message[n]);
+    if (config_notes.total > config_notes.stored)
+      pbs_log_warn("config %d further rejected lines not detailed",
+                   config_notes.total - config_notes.stored);
+  } else if (config_status < 0) {
+    pbs_log_warn("config file unreadable or larger than %d bytes; defaults used",
+                 PBS_CONFIG_MAX_BYTES);
+  }
+
   FILE *startup_report = open_report("inject.txt", "a");
   if (startup_report) {
     uint32_t firmware = kernel_get_fw_version();
@@ -586,6 +656,20 @@ int main(int argc, char **argv) {
             PBS_PS5_RUNTIME_REVISION);
     fprintf(startup_report, "Controller compiled=%d enabled=%d\n",
             PBS_PS5_CONTROLLER, controller_enabled);
+    if (config_status == 0) {
+      char summary[192];
+      pbs_config_describe(&config, summary, sizeof summary);
+      fprintf(startup_report, "Config file=" PBS_DATA_DIR "/pbs.conf rejected_lines=%d %s\n",
+              config_notes.total, summary);
+      for (int n = 0; n < config_notes.stored; n++)
+        fprintf(startup_report, "Config line %u: %s\n", config_notes.line[n], config_notes.message[n]);
+      if (config_notes.total > config_notes.stored)
+        fprintf(startup_report, "Config %d further rejected lines not detailed\n",
+                config_notes.total - config_notes.stored);
+    } else if (config_status < 0) {
+      fprintf(startup_report, "Config file=" PBS_DATA_DIR "/pbs.conf ignored (unreadable or larger than %d bytes)\n",
+              PBS_CONFIG_MAX_BYTES);
+    }
     fclose(startup_report);
   }
   if (module_file_dump) {
