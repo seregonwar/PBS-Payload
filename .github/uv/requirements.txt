@@ -1,2 +1,2 @@
 # Read by astral-sh/setup-uv (version-file in ci.yml); Dependabot (pip) bumps it.
-uv==0.13.8
+uv==0.13.9
